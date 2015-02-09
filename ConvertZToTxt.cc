@@ -5,26 +5,159 @@
 #include <string>
 #include <sstream>
 #include "include/zlib.h"
+#include <dirent.h>
+#include <iomanip>
+
+//add ability to take in output directory
 
 using namespace std;
 
-void GetDataStream( string, std::stringstream&);
+bool GetDataStream( string, std::stringstream&);
+bool RecursiveConversion( string inDir, string outDir);
+bool DirectoryExists( const char* pzPath );
 void SetDataStream( string, std::stringstream&, bool ascii);
 
 int main(int argc, char **argv)
 {
-    string fileName;
-    std::stringstream ss;
+    string fileName, outDirName;
+    std::stringstream stream;
 
     if(argc==2)
     {
         fileName=argv[1];
-        GetDataStream( fileName , ss);
-        SetDataStream( fileName, ss, true);
+        outDirName=fileName.substr(0,fileName.find_last_of('/')+1);
     }
+    else if(argc==3)
+    {
+        fileName=argv[1];
+        outDirName=argv[2];
+
+        if(!(DirectoryExists((outDirName).c_str())))
+        {
+            system( ("mkdir -p -m=666 "+outDirName).c_str());
+            if(DirectoryExists((outDirName).c_str()))
+            {
+                cout << "created directory " << outDirName << "\n" << endl;
+            }
+            else
+            {
+                cout << "\nError: could not create Directory " << outDirName << "\n" << endl;
+                return 1;
+            }
+        }
+    }
+
+    if(fileName.back()=='/')
+    {
+        RecursiveConversion( fileName, outDirName);
+    }
+    else
+    {
+        // Gets data from the file and stores it into a data stream
+        if(GetDataStream(fileName, stream))
+        {
+            return 1;
+        }
+        outDirName=outDirName+fileName.substr(fileName.find_last_of('/')+1, string::npos);
+        SetDataStream( outDirName, stream, true);
+    }
+
+    return 0;
+
 }
 
-void GetDataStream( string filename , std::stringstream& ss)
+bool RecursiveConversion( string inDir, string outDir)
+{
+    DIR *dir;
+    struct dirent *ent;
+    stringstream stream;
+    bool test;
+    string inFile, outFile;
+
+    if(inDir.back()!='/')
+    {
+        inDir.push_back('/');
+    }
+    if(outDir.back()!='/')
+    {
+        outDir.push_back('/');
+    }
+
+    //goes through the given directory and converts the ENDF libraries that match the given vversion
+    if ((dir = opendir (inDir.c_str())) != NULL)
+    {
+        while ((ent = readdir (dir)) != NULL)
+        {
+            if((string(ent->d_name)!="..")&&(string(ent->d_name)!="."))
+            {
+                inFile=inDir+ent->d_name;
+                outFile=outDir+ent->d_name;
+
+                test=RecursiveConversion( inFile, outFile);
+            }
+
+        }
+        closedir(dir);
+    }
+    else
+    {
+        inDir.pop_back();
+        outDir.pop_back();
+        inFile=inDir;
+        outFile=outDir;
+        inDir=inDir.substr(0,inDir.find_last_of('/')+1);
+        outDir=outDir.substr(0,outDir.find_last_of('/')+1);
+
+        // Gets data from the file and stores it into a data stream
+        GetDataStream(inFile, stream);
+        if(stream.good())
+        {
+            if(!(DirectoryExists((outDir).c_str())))
+            {
+                system( ("mkdir -p -m=666 "+outDir).c_str());
+                if(DirectoryExists((outDir).c_str()))
+                {
+
+                }
+                else
+                {
+                    cout << "\nError: could not create Directory " << outDir << "\n" << endl;
+                    return 1;
+                }
+            }
+            SetDataStream( outFile, stream, true);
+            stream.str("");
+            stream.clear();
+            test=true;
+        }
+        else
+        {
+            test=false;
+        }
+
+    }
+    return test;
+}
+
+bool DirectoryExists( const char* pzPath )
+{
+    if ( pzPath == NULL) return false;
+
+    DIR *pDir;
+    bool bExists = false;
+
+    pDir = opendir (pzPath);
+
+    if (pDir != NULL)
+    {
+        bExists = true;
+        closedir (pDir);
+    }
+
+    return bExists;
+}
+
+bool GetDataStream( string filename , std::stringstream& ss)
 {
    string* data=NULL;
    std::ifstream* in=NULL;
@@ -78,7 +211,7 @@ void GetDataStream( string filename , std::stringstream& ss)
                 in->close();
                 delete in;
             }
-            return;
+            return false;
          }
          while ( thefData )
          {
@@ -109,8 +242,16 @@ void GetDataStream( string filename , std::stringstream& ss)
         in->close();
         delete in;
    }
-
    delete data;
+
+   if(ss.good())
+   {
+      return true;
+   }
+   else
+   {
+      return false;
+   }
 }
 
 
