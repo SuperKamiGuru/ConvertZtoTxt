@@ -12,10 +12,10 @@
 
 using namespace std;
 
-bool GetDataStream( string, std::stringstream&);
-bool RecursiveConversion( string inDir, string outDir);
+bool GetDataStream( string, std::stringstream&, bool ascii=false);
+bool RecursiveConversion( string inDir, string outDir, bool first);
 bool DirectoryExists( const char* pzPath );
-void SetDataStream( string, std::stringstream&, bool ascii);
+void SetDataStream( string&, std::stringstream&, bool ascii);
 
 int main(int argc, char **argv)
 {
@@ -34,7 +34,7 @@ int main(int argc, char **argv)
 
         if(!(DirectoryExists((outDirName).c_str())))
         {
-            system( ("mkdir -p -m=666 "+outDirName).c_str());
+            system( ("mkdir -p -m=777 "+outDirName).c_str());
             if(DirectoryExists((outDirName).c_str()))
             {
                 cout << "created directory " << outDirName << "\n" << endl;
@@ -46,27 +46,34 @@ int main(int argc, char **argv)
             }
         }
     }
+    else
+    {
+        cout << "\nError: Incorrect number of inputs\nOption 1: Provide full path of file to be converted\nOption 2: Provide full path of file to be converted and the output directory" << endl;
+        return 1;
+    }
 
     if(fileName.back()=='/')
     {
-        RecursiveConversion( fileName, outDirName);
+        RecursiveConversion( fileName, outDirName, true);
     }
     else
     {
         // Gets data from the file and stores it into a data stream
-        if(GetDataStream(fileName, stream))
+        if(!GetDataStream(fileName, stream))
         {
+            cout << "\nError: Failed to extract data from " << fileName << "\n" << endl;
             return 1;
         }
         outDirName=outDirName+fileName.substr(fileName.find_last_of('/')+1, string::npos);
         SetDataStream( outDirName, stream, true);
+        system( ("chmod 777 "+outDirName).c_str());
     }
 
     return 0;
 
 }
 
-bool RecursiveConversion( string inDir, string outDir)
+bool RecursiveConversion( string inDir, string outDir, bool first)
 {
     DIR *dir;
     struct dirent *ent;
@@ -93,11 +100,15 @@ bool RecursiveConversion( string inDir, string outDir)
                 inFile=inDir+ent->d_name;
                 outFile=outDir+ent->d_name;
 
-                test=RecursiveConversion( inFile, outFile);
+                test=RecursiveConversion( inFile, outFile, false);
             }
 
         }
         closedir(dir);
+        if(first)
+        {
+            system( ("chmod 777 -R "+outDir).c_str());
+        }
     }
     else
     {
@@ -114,7 +125,7 @@ bool RecursiveConversion( string inDir, string outDir)
         {
             if(!(DirectoryExists((outDir).c_str())))
             {
-                system( ("mkdir -p -m=666 "+outDir).c_str());
+                system( ("mkdir -p -m=777 "+outDir).c_str());
                 if(DirectoryExists((outDir).c_str()))
                 {
 
@@ -129,6 +140,10 @@ bool RecursiveConversion( string inDir, string outDir)
             stream.str("");
             stream.clear();
             test=true;
+            if(first)
+            {
+                system( ("chmod 777 "+outFile).c_str());
+            }
         }
         else
         {
@@ -157,13 +172,13 @@ bool DirectoryExists( const char* pzPath )
     return bExists;
 }
 
-bool GetDataStream( string filename , std::stringstream& ss)
+bool GetDataStream( string filename , std::stringstream& ss, bool ascii)
 {
    string* data=NULL;
    std::ifstream* in=NULL;
-   //string compfilename(filename);
+   bool unzipped=true;
 
-   if(filename.substr((filename.length()-2),2)==".z")
+   if((filename.substr((filename.length()-2),2)==".z")&&(!ascii))
    {
         in = new std::ifstream ( filename.c_str() , std::ios::binary | std::ios::ate );
    }
@@ -187,12 +202,27 @@ bool GetDataStream( string filename , std::stringstream& ss)
       {
          delete[] uncompdata;
          complen *= 2;
+         if(int(complen)>1000000000)
+         {
+            unzipped=false;
+            break;
+         }
          uncompdata = new Bytef[complen];
       }
-      delete [] compdata;
-      //                                 Now "complen" has uncomplessed size
-      data = new string ( (char*)uncompdata , (long)complen );
-      delete [] uncompdata;
+      if(unzipped)
+      {
+          delete [] compdata;
+          //                                 Now "complen" has uncomplessed size
+          data = new string ( (char*)uncompdata , (long)complen );
+          delete [] uncompdata;
+      }
+      else
+      {
+          delete [] compdata;
+          in->close();
+          delete in;
+          return GetDataStream( filename , ss, true);
+      }
    }
    else {
 // Use regular text file
@@ -255,17 +285,15 @@ bool GetDataStream( string filename , std::stringstream& ss)
 }
 
 
-void SetDataStream( string filename , std::stringstream& ss, bool ascii )
+void SetDataStream( string &filename , std::stringstream& ss, bool ascii )
 {
     //bool cond=true;
    if (!ascii)
    {
-        string compfilename(filename);
+        if(filename.back()!='z')
+            filename += ".z";
 
-        if(compfilename.back()!='z')
-            compfilename += ".z";
-
-       std::ofstream* out = new std::ofstream ( compfilename.c_str() , std::ios::binary | std::ios::trunc);
+       std::ofstream* out = new std::ofstream ( filename.c_str() , std::ios::binary | std::ios::trunc);
        if ( ss.good() )
        {
        //
@@ -288,13 +316,13 @@ void SetDataStream( string filename , std::stringstream& ss, bool ascii )
             out->write((char*)compdata, (long)complen);
             if (out->fail())
             {
-                cout << endl << "writing the compressed data to the output file " << compfilename << " failed" << endl
-                    << " may not have permission to delete an older version of the file" << endl;
+                cout << endl << "### Error: writing the compressed data to the output file " << filename << " failed" << endl
+                    << " may not have permission to delete an older version of the file ###" << endl;
             }
           }
           else
           {
-            cout << endl << "compressing the data failed" << endl;
+            cout << endl << "compressing " << filename << " failed" << endl;
           }
 
           delete [] uncompdata;
@@ -310,15 +338,13 @@ void SetDataStream( string filename , std::stringstream& ss, bool ascii )
    else
    {
 // Use regular text file
-    string compfilename(filename);
-
-    if(compfilename.substr((compfilename.length()-2),2)==".z")
+    if(filename.substr((filename.length()-2),2)==".z")
     {
-        compfilename.pop_back();
-        compfilename.pop_back();
+        filename.pop_back();
+        filename.pop_back();
     }
 
-      std::ofstream out( compfilename.c_str() , std::ios::out | std::ios::trunc );
+      std::ofstream out( filename.c_str() , std::ios::out | std::ios::trunc );
       if ( ss.good() )
       {
          ss.seekg( 0 , std::ios::end );
@@ -329,15 +355,15 @@ void SetDataStream( string filename , std::stringstream& ss, bool ascii )
             ss.read( filedata , file_size );
             if(!file_size)
             {
-                cout << "\n #### Error the size of the stringstream is invalid ###" << endl;
+                cout << "\n #### Warning the size of the stringstream for " << filename << " is zero ###" << endl;
                 break;
             }
          }
          out.write(filedata, file_size);
          if (out.fail())
         {
-            cout << endl << "writing the ascii data to the output file " << compfilename << " failed" << endl
-                 << " may not have permission to delete an older version of the file" << endl;
+            cout << endl << "### Error: writing the ascii data to the output file " << filename << " failed" << endl
+                 << " may not have permission to delete an older version of the file ###" << endl;
         }
          out.close();
          delete [] filedata;
@@ -348,7 +374,7 @@ void SetDataStream( string filename , std::stringstream& ss, bool ascii )
 //                 set error bit to the stream
          ss.setstate( std::ios::badbit );
 
-         cout << endl << "### failed to write to ascii file " << compfilename << " ###" << endl;
+         cout << endl << "### failed to write to ascii file " << filename << " ###" << endl;
       }
    }
    ss.str("");
